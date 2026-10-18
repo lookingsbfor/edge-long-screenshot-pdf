@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Edge网页长截屏导出PDF（分页+分图）
 // @namespace    https://github.com/lookingsbfor
-// @version      3.1
-// @description  自动加载动态内容 + 全页长截图，按 A4 比例分页导出 PDF 或拆分保存图片
+// @version      3.2
+// @description  自动加载动态内容 + 全页长截图，可保存完整长图、按 A4 比例分页导出 PDF 或拆分保存图片
 // @author       lookingsbfor
 // @license      MIT
 // @homepageURL  https://github.com/lookingsbfor/edge-long-screenshot-pdf
@@ -18,6 +18,9 @@
 // ==/UserScript==
 
 /*
+ * v3.2 修复记录
+ * 8. 新增「保存完整长图」：保留未分割的原始长截图，长图 / 分页 PDF / 分图三种输出按需选择。
+ *
  * v3.1 修复记录
  * 1. 修正 A4 切块比例：块高由 canvas 宽度换算，不再用 297mm 换算的固定像素值。
  *    旧版未乘 devicePixelRatio，导致分页数量错误且页面被严重拉伸变形。
@@ -149,6 +152,9 @@
         #export-pdf-btn:hover { background: #005a9e; }
         #split-save-img-btn { background: #28a745; color: #fff; }
         #split-save-img-btn:hover { background: #218838; }
+        #save-full-btn { background: #6f42c1; color: #fff; }
+        #save-full-btn:hover { background: #5a32a3; }
+        #save-full-btn:disabled { background: #ced4da; cursor: not-allowed; }
         #close-preview-btn { width: 28px; height: 28px; border: none; background: transparent;
             font-size: 20px; color: #666; cursor: pointer; line-height: 1; border-radius: 50%; }
         #close-preview-btn:hover { color: #000; background: #eee; }
@@ -179,6 +185,7 @@
                 <span>截图预览</span>
                 <div class="preview-header-actions">
                     <button id="export-pdf-btn">导出 PDF（分页）</button>
+                    <button id="save-full-btn">保存完整长图</button>
                     <button id="split-save-img-btn">分割存图片</button>
                     <button id="close-preview-btn">&times;</button>
                 </div>
@@ -198,6 +205,7 @@
 
     // ---------- 状态 ----------
     let blocks = [];        // 拆分后的 canvas
+    let fullCanvas = null;  // 未分割的完整长图
     let meta = null;        // { width, height, pages, title }
     let isCapturing = false;
     let previewUrl = null;
@@ -272,6 +280,9 @@
             return;
         }
 
+        // 释放上一次留下的完整长图，避免连续截图时内存累积
+        if (fullCanvas) { fullCanvas.width = fullCanvas.height = 0; fullCanvas = null; }
+
         isCapturing = true;
         const btn = $('start-capture-btn');
         btn.disabled = true;
@@ -323,10 +334,10 @@
             previewUrl = URL.createObjectURL(previewBlob);
             $('preview-img').src = previewUrl;
             $('split-tips').textContent =
-                `原始尺寸 ${canvas.width}×${canvas.height}，已按 A4 比例拆分为 ${blocks.length} 张图片。`;
+                `原始尺寸 ${canvas.width}×${canvas.height}。可直接保存完整长图，也可按 A4 比例导出 ${blocks.length} 页 PDF 或 ${blocks.length} 张分图。`;
             $('screenshot-preview-modal').style.display = 'block';
 
-            canvas.width = canvas.height = 0; // 释放整张大图内存
+            fullCanvas = canvas; // 保留完整长图，供「保存完整长图」使用
         } catch (err) {
             console.error(err);
             alert(`截图失败：${err && err.message ? err.message : err}\n若为跨域图片，请确认站点允许 CORS。`);
@@ -390,6 +401,25 @@
         } finally {
             btn.disabled = false;
             btn.textContent = '分割存图片';
+        }
+    });
+
+    // ---------- 6.5 保存完整长图（不分割） ----------
+    $('save-full-btn').addEventListener('click', async () => {
+        if (!fullCanvas) return alert('请先完成截图！');
+        const btn = $('save-full-btn');
+        btn.disabled = true;
+        btn.textContent = '保存中…';
+        try {
+            const blob = await canvasToBlob(fullCanvas);
+            downloadBlob(blob, `${meta.title}_长图_${meta.width}x${meta.height}_${timestamp()}.${IMG_EXT}`);
+            setStatus(`完整长图已保存（${meta.width}×${meta.height}）`);
+        } catch (err) {
+            console.error(err);
+            alert(`长图保存失败：${err && err.message ? err.message : err}`);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '保存完整长图';
         }
     });
 
