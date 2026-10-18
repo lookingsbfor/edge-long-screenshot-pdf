@@ -1,0 +1,5 @@
+# 本地草稿与历史版本不入库
+*.txt
+
+.DS_Store
+Thumbs.db
